@@ -20,7 +20,8 @@ function Invoke-ExecJITAdmin {
     $Expiration = ([System.DateTimeOffset]::FromUnixTimeSeconds($Request.Body.EndDate)).DateTime.ToLocalTime()
     $Results = [System.Collections.Generic.List[object]]::new()
 
-    # Check maximum duration setting
+    # Check maximum duration setting and resolve MFA exclude group
+    $MfaExcludeGroupId = $null
     try {
         $ConfigTable = Get-CIPPTable -TableName Config
         $Filter = "PartitionKey eq 'JITAdminSettings' and RowKey eq 'JITAdminSettings'"
@@ -48,8 +49,18 @@ function Invoke-ExecJITAdmin {
                 Write-Warning "Failed to parse MaxDuration setting: $($_.Exception.Message)"
             }
         }
+
+        # Resolve MFA exclude group from settings
+        if ($JITAdminConfig -and ![string]::IsNullOrWhiteSpace($JITAdminConfig.MfaExcludeGroupName)) {
+            try {
+                $MfaExcludeGroupIds = Convert-CIPPGroupNameToId -TenantFilter $TenantFilter -GroupNames @($JITAdminConfig.MfaExcludeGroupName) -CreateGroups -APIName $APIName -Headers $Headers
+                $MfaExcludeGroupId = $MfaExcludeGroupIds | Select-Object -First 1
+            } catch {
+                Write-Warning "Failed to resolve MFA exclude group '$($JITAdminConfig.MfaExcludeGroupName)': $($_.Exception.Message)"
+            }
+        }
     } catch {
-        Write-Warning "Failed to check JIT Admin max duration setting: $($_.Exception.Message)"
+        Write-Warning "Failed to check JIT Admin settings: $($_.Exception.Message)"
         # Continue execution if we can't check the setting
     }
 
@@ -63,7 +74,7 @@ function Invoke-ExecJITAdmin {
                 'FirstName'         = $Request.Body.FirstName
                 'LastName'          = $Request.Body.LastName
                 'UserPrincipalName' = $Username
-                'UsageLocation'     = $Request.Body.usageLocation
+                'UsageLocation'     = $Request.Body.usageLocation.value ?? $Request.Body.usageLocation
             }
             Expiration   = $Expiration
             StartDate    = $Start
@@ -137,7 +148,6 @@ function Invoke-ExecJITAdmin {
             } else {
                 $TapBody = '{}'
             }
-            # Write-Information "https://graph.microsoft.com/beta/users/$Username/authentication/temporaryAccessPassMethods"
             # Retry creating the TAP up to 10 times, since it can fail due to the user not being fully created yet. Sometimes it takes 2 reties, sometimes it takes 8+. Very annoying. -Bobby
             $Retries = 0
             $MAX_TAP_RETRIES = 10
@@ -147,7 +157,6 @@ function Invoke-ExecJITAdmin {
                 } catch {
                     Start-Sleep -Seconds 2
                     Write-Information "ERROR: Run $Retries of $MAX_TAP_RETRIES : Failed to create TAP, retrying"
-                    # Write-Information ( ConvertTo-Json -Depth 5 -InputObject (Get-CippException -Exception $_))
                 }
                 $Retries++
             } while ( $null -eq $TapRequest.temporaryAccessPass -and $Retries -le $MAX_TAP_RETRIES )
@@ -178,16 +187,22 @@ function Invoke-ExecJITAdmin {
     }
     #EndRegion TAP creation
 
+    # Merge MFA exclude group into group memberships
+    $UserGroups = @($Request.Body.GroupMemberships.value)
+    if ($MfaExcludeGroupId -and $MfaExcludeGroupId -notin $UserGroups) {
+        $UserGroups = $UserGroups + @($MfaExcludeGroupId)
+    }
+
     $Parameters = @{
         TenantFilter = $TenantFilter
         User         = @{
             'UserPrincipalName' = $Username
         }
         Roles        = $Request.Body.AdminRoles.value
-        Groups       = $Request.Body.GroupMemberships.value
-        Action       = if ($Request.Body.AdminRoles.value -and $Request.Body.GroupMemberships.value) {
+        Groups       = $UserGroups
+        Action       = if ($Request.Body.AdminRoles.value -and $UserGroups) {
             'AddRolesAndGroups'
-        } elseif ($Request.Body.GroupMemberships.value) {
+        } elseif ($UserGroups) {
             'AddGroups'
         } else {
             'AddRoles'
@@ -232,9 +247,44 @@ function Invoke-ExecJITAdmin {
         }
     }
 
+    # Determine expire action and groups for the disable task
+    $ExpireAction = $Request.Body.ExpireAction.value
+    $ExpireGroups = @($Request.Body.GroupMemberships.value)
+    if ($MfaExcludeGroupId) {
+        if ($MfaExcludeGroupId -notin $ExpireGroups) {
+            $ExpireGroups = $ExpireGroups + @($MfaExcludeGroupId)
+        }
+        switch ($ExpireAction) {
+            'RemoveRoles' {
+                $ExpireAction = 'RemoveRolesAndGroups'
+            }
+            'DisableUser' {
+                # Schedule separate hidden task to remove from MFA exclude group
+                $CleanupTask = [pscustomobject]@{
+                    TenantFilter  = $TenantFilter
+                    Name          = "JIT Admin (MFA exclude cleanup): $Username"
+                    Command       = @{
+                        value = 'Set-CIPPUserJITAdmin'
+                        label = 'Set-CIPPUserJITAdmin'
+                    }
+                    Parameters    = [pscustomobject]@{
+                        TenantFilter = $TenantFilter
+                        User         = @{
+                            'UserPrincipalName' = $Username
+                        }
+                        Groups       = @($MfaExcludeGroupId)
+                        Action       = 'RemoveGroups'
+                    }
+                    ScheduledTime = $Request.Body.EndDate
+                }
+                Add-CIPPScheduledTask -Task $CleanupTask -hidden $true
+            }
+        }
+    }
+
     $DisableTaskBody = [pscustomobject]@{
         TenantFilter  = $TenantFilter
-        Name          = "JIT Admin ($($Request.Body.ExpireAction.value)): $Username"
+        Name          = "JIT Admin ($($ExpireAction)): $Username"
         AlertComment  = if (![string]::IsNullOrWhiteSpace($Request.Body.Reason)) { "JIT Reason: $($Request.Body.Reason)" } else { $null }
         Command       = @{
             value = 'Set-CIPPUserJITAdmin'
@@ -246,9 +296,9 @@ function Invoke-ExecJITAdmin {
                 'UserPrincipalName' = $Username
             }
             Roles        = $Request.Body.AdminRoles.value
-            Groups       = $Request.Body.GroupMemberships.value
+            Groups       = $ExpireGroups
             Reason       = $Request.Body.Reason
-            Action       = $Request.Body.ExpireAction.value
+            Action       = $ExpireAction
         }
         PostExecution = @{
             Webhook = [bool]($Request.Body.PostExecution | Where-Object -Property value -EQ 'webhook')
@@ -258,7 +308,7 @@ function Invoke-ExecJITAdmin {
         ScheduledTime = $Request.Body.EndDate
     }
     $null = Add-CIPPScheduledTask -Task $DisableTaskBody -hidden $false
-    $Results.Add("Scheduling JIT Admin $($Request.Body.ExpireAction.value) task for $Username")
+    $Results.Add("Scheduling JIT Admin $($ExpireAction) task for $Username")
 
     return ([HttpResponseContext]@{
             StatusCode = [HttpStatusCode]::OK
