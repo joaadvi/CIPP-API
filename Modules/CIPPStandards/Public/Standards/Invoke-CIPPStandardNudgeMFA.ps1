@@ -19,7 +19,7 @@ function Invoke-CIPPStandardNudgeMFA {
         ADDEDCOMPONENT
             {"type":"autoComplete","multiple":false,"creatable":false,"label":"Select value","name":"standards.NudgeMFA.state","options":[{"label":"Enabled","value":"enabled"},{"label":"Disabled","value":"disabled"}]}
             {"type":"number","name":"standards.NudgeMFA.snoozeDurationInDays","label":"Number of days to allow users to skip registering Authenticator (0-14, default is 1)","defaultValue":1,"validators":{"min":{"value":0,"message":"Minimum value is 0"},"max":{"value":14,"message":"Maximum value is 14"}}}
-            {"type":"input","name":"standards.NudgeMFA.excludeGroupName","label":"Exclude group display name (e.g. CIPP-JIT-MFA-Exclude)"}
+            {"type":"textField","name":"standards.NudgeMFA.excludeGroupName","label":"Exclude group display name (e.g. CIPP-JIT-MFA-Exclude)"}
             {"type":"switch","name":"standards.NudgeMFA.CreateGroups","label":"Create exclude group if it does not exist"}
         IMPACT
             Low Impact
