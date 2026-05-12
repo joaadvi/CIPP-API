@@ -20,21 +20,16 @@ function Invoke-ExecJITAdmin {
     $Expiration = ([System.DateTimeOffset]::FromUnixTimeSeconds($Request.Body.EndDate)).DateTime.ToLocalTime()
     $Results = [System.Collections.Generic.List[object]]::new()
 
-    # Check maximum duration setting and resolve MFA exclude group
-    $MfaExcludeGroupId = $null
+    # Check maximum duration setting
     try {
         $ConfigTable = Get-CIPPTable -TableName Config
         $Filter = "PartitionKey eq 'JITAdminSettings' and RowKey eq 'JITAdminSettings'"
         $JITAdminConfig = Get-CIPPAzDataTableEntity @ConfigTable -Filter $Filter
 
         if ($JITAdminConfig -and ![string]::IsNullOrWhiteSpace($JITAdminConfig.MaxDuration)) {
-            # Calculate the duration between start and expiration
             $RequestedDuration = $Expiration - $Start
-
-            # Parse the max duration from ISO 8601 format
             try {
                 $MaxDurationTimeSpan = [System.Xml.XmlConvert]::ToTimeSpan($JITAdminConfig.MaxDuration)
-
                 if ($RequestedDuration -gt $MaxDurationTimeSpan) {
                     $RequestedDays = $RequestedDuration.TotalDays.ToString('0.00')
                     $MaxDays = $MaxDurationTimeSpan.TotalDays.ToString('0.00')
@@ -49,20 +44,19 @@ function Invoke-ExecJITAdmin {
                 Write-Warning "Failed to parse MaxDuration setting: $($_.Exception.Message)"
             }
         }
-
-
-        # Resolve MFA exclude group from settings
-        if ($JITAdminConfig -and ![string]::IsNullOrWhiteSpace($JITAdminConfig.MfaExcludeGroupName)) {
-            try {
-                $MfaExcludeGroupIds = Convert-CIPPGroupNameToId -TenantFilter $TenantFilter -GroupNames @($JITAdminConfig.MfaExcludeGroupName) -CreateGroups -APIName $APIName -Headers $Headers
-                $MfaExcludeGroupId = $MfaExcludeGroupIds | Select-Object -First 1
-            } catch {
-                Write-Warning "Failed to resolve MFA exclude group '$($JITAdminConfig.MfaExcludeGroupName)': $($_.Exception.Message)"
-            }
-        }
     } catch {
         Write-Warning "Failed to check JIT Admin settings: $($_.Exception.Message)"
-        # Continue execution if we can't check the setting
+    }
+
+    # Resolve MFA exclude group from request (template-driven)
+    $MfaExcludeGroupId = $null
+    if ($Request.Body.mfaExcludeEnabled -and ![string]::IsNullOrWhiteSpace($Request.Body.mfaExcludeGroupName)) {
+        try {
+            $MfaExcludeGroupIds = Convert-CIPPGroupNameToId -TenantFilter $TenantFilter -GroupNames @($Request.Body.mfaExcludeGroupName) -CreateGroups -APIName $APIName -Headers $Headers
+            $MfaExcludeGroupId = $MfaExcludeGroupIds | Select-Object -First 1
+        } catch {
+            Write-Warning "Failed to resolve MFA exclude group '$($Request.Body.mfaExcludeGroupName)': $($_.Exception.Message)"
+        }
     }
 
     if ($Request.Body.userAction -eq 'create') {

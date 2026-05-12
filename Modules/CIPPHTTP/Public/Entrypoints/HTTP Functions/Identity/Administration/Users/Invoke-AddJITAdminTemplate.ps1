@@ -86,6 +86,8 @@ function Invoke-AddJITAdminTemplate {
             defaultNotificationActions  = $Request.Body.defaultNotificationActions
             generateTAPByDefault        = [bool]$Request.Body.generateTAPByDefault
             reasonTemplate              = $Request.Body.reasonTemplate
+            mfaExcludeEnabled           = [bool]$Request.Body.mfaExcludeEnabled
+            mfaExcludeGroupName         = if (![string]::IsNullOrWhiteSpace($Request.Body.mfaExcludeGroupName)) { $Request.Body.mfaExcludeGroupName } else { $null }
             createdBy                   = $UserDetails
             createdDate                 = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
