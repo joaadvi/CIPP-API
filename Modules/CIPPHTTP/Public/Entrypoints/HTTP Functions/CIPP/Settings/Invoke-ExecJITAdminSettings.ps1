@@ -19,10 +19,9 @@ function Invoke-ExecJITAdminSettings {
 
         if (-not $JITAdminConfig) {
             $JITAdminConfig = @{
-                PartitionKey        = 'JITAdminSettings'
-                RowKey              = 'JITAdminSettings'
-                MaxDuration         = $null
-                MfaExcludeGroupName = $null
+                PartitionKey = 'JITAdminSettings'
+                RowKey       = 'JITAdminSettings'
+                MaxDuration  = $null
             }
         }
 
@@ -31,8 +30,7 @@ function Invoke-ExecJITAdminSettings {
         $Results = switch ($Action) {
             'Get' {
                 @{
-                    MaxDuration         = $JITAdminConfig.MaxDuration
-                    MfaExcludeGroupName = $JITAdminConfig.MfaExcludeGroupName
+                    MaxDuration = $JITAdminConfig.MaxDuration
                 }
             }
             'Set' {
@@ -52,30 +50,15 @@ function Invoke-ExecJITAdminSettings {
                     $JITAdminConfig | Add-Member -NotePropertyName MaxDuration -NotePropertyValue $null -Force
                 }
 
-                $MfaExcludeGroupName = $Request.Body.MfaExcludeGroupName
-                if (![string]::IsNullOrWhiteSpace($MfaExcludeGroupName)) {
-                    $JITAdminConfig | Add-Member -NotePropertyName MfaExcludeGroupName -NotePropertyValue $MfaExcludeGroupName -Force
-                } else {
-                    $JITAdminConfig | Add-Member -NotePropertyName MfaExcludeGroupName -NotePropertyValue $null -Force
-                }
-
                 $JITAdminConfig.PartitionKey = 'JITAdminSettings'
                 $JITAdminConfig.RowKey = 'JITAdminSettings'
 
                 Add-CIPPAzDataTableEntity @Table -Entity $JITAdminConfig -Force | Out-Null
 
-                $MessageParts = [System.Collections.Generic.List[string]]::new()
-                if ($JITAdminConfig.MaxDuration) {
-                    $MessageParts.Add("maximum duration to $($JITAdminConfig.MaxDuration)")
-                }
-                if ($JITAdminConfig.MfaExcludeGroupName) {
-                    $MessageParts.Add("MFA exclude group to '$($JITAdminConfig.MfaExcludeGroupName)'")
-                }
-
-                $Message = if ($MessageParts.Count -gt 0) {
-                    "Successfully set JIT Admin $($MessageParts -join ' and ')"
+                $Message = if ($JITAdminConfig.MaxDuration) {
+                    "Successfully set JIT Admin maximum duration to $($JITAdminConfig.MaxDuration)"
                 } else {
-                    'Successfully cleared all JIT Admin settings'
+                    'Successfully removed JIT Admin maximum duration limit'
                 }
 
                 Write-LogMessage -headers $Headers -API $APIName -message $Message -Sev 'Info'
