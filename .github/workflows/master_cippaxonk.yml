@@ -11,7 +11,6 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'cippaxonk-flex'
-  RESOURCE_GROUP: 'Cipp-West-Europe'
 
 jobs:
   deploy:
@@ -26,14 +25,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Create deployment package
-        run: zip -r release.zip . --exclude "*.git*" --exclude ".github/*"
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Deploy to Flex Consumption
-        run: |
-          az functionapp deploy \
-            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --src-path release.zip \
-            --type zip \
-            --async false
+        run: func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --powershell --no-build
