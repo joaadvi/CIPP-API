@@ -11,8 +11,6 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'cippaxonk-flex'
-  STORAGE_ACCOUNT: 'cippstgaxonk'
-  BLOB_CONTAINER: 'app-package-cippaxonkflex-9684844'
 
 jobs:
   deploy:
@@ -27,21 +25,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Create deployment package
-        run: zip -r release.zip . --exclude "*.git*" --exclude ".github/*"
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
-      - name: Upload package to blob storage
-        run: |
-          az storage blob upload \
-            --account-name ${{ env.STORAGE_ACCOUNT }} \
-            --container-name ${{ env.BLOB_CONTAINER }} \
-            --name release.zip \
-            --file release.zip \
-            --overwrite \
-            --auth-mode login
-
-      - name: Sync function app
-        run: |
-          az functionapp restart \
-            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --resource-group Cipp-West-Europe
+      - name: Deploy to Flex Consumption
+        run: func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --powershell --no-build
