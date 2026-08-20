@@ -131,6 +131,9 @@ function Get-CIPPURLName {
         '*officeSuiteApp' {
             'deviceAppManagement/mobileApps'
         }
+        '*microsoftEdgeApp' {
+            'deviceAppManagement/mobileApps'
+        }
 
         # Named Locations
         '*namedLocation' {
