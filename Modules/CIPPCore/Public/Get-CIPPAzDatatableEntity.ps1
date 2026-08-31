@@ -35,6 +35,19 @@ function Get-CIPPAzDataTableEntity {
     $null = $Parameters.Remove('ErrorAction')
     $null = $Parameters.Remove('ErrorVariable')
 
+    # A projection must always carry the split metadata. Reassembly identifies the master row by
+    # PartIndex and checks the set against PartCount, so a caller that selects neither leaves the
+    # module unable to tell a complete entity from a truncated one - it reports every split entity
+    # as incomplete ("the first row of the entity (PartIndex 0) was not returned") even though every
+    # row is present, and the entity is then skipped. Callers that skip entities they never see
+    # cannot act on them: Add-CIPPDbItem's orphan cleanup projects five columns, so it never
+    # received the stale rows it exists to delete, and one uncollectable generation accumulated per
+    # run. Requesting a property a row does not carry is harmless, so this is added unconditionally.
+    if ($Parameters.ContainsKey('Property') -and $Parameters['Property']) {
+        $SplitMetadata = @('PartIndex', 'PartCount', 'SplitOverProps', 'OriginalEntityId')
+        $Parameters['Property'] = @(@($Parameters['Property']) + $SplitMetadata | Select-Object -Unique)
+    }
+
     $Results = Get-AzDataTableLargeEntity @Parameters -ErrorAction SilentlyContinue -ErrorVariable TableErrors
 
     # Do not pipe $null/$empty into Where-Object - PowerShell invokes the block once with $_ = $null.
