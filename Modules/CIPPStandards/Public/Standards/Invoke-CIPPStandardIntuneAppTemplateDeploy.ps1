@@ -16,7 +16,7 @@ function Invoke-CIPPStandardIntuneAppTemplateDeploy {
         EXECUTIVETEXT
             Automatically deploys approved Intune applications across all managed tenants, ensuring consistent software availability and reducing manual deployment overhead. Supports WinGet, Office, Chocolatey, Win32, and MSP application types.
         ADDEDCOMPONENT
-            {"type":"autoComplete","multiple":true,"creatable":false,"label":"Select Application Templates","name":"standards.IntuneAppTemplateDeploy.templateIds","api":{"url":"/api/ListAppTemplates","labelField":"Displayname","valueField":"GUID","queryKey":"StdIntuneAppTemplateList"}}
+            {"type":"autoComplete","multiple":true,"creatable":false,"label":"Select Application Templates","name":"standards.IntuneAppTemplateDeploy.templateIds","api":{"url":"/api/ListAppTemplates","labelField":"displayName","valueField":"GUID","queryKey":"StdIntuneAppTemplateList","templateView":{"title":"Application Template"}}}
         IMPACT
             Medium Impact
         ADDEDDATE
@@ -78,8 +78,8 @@ function Invoke-CIPPStandardIntuneAppTemplateDeploy {
 
             $IsDeployed = switch ($AppType) {
                 'officeApp' { $OfficeDeployed }
-                'edgeApp'   { $EdgeDeployed }
-                default     { $DisplayName -in $CurrentAppNames }
+                'edgeApp' { $EdgeDeployed }
+                default { $DisplayName -in $CurrentAppNames }
             }
 
             if (-not $IsDeployed) {
@@ -121,11 +121,13 @@ function Invoke-CIPPStandardIntuneAppTemplateDeploy {
                     # Build AppConfig in the same format as the apps queue
                     # Assignment info comes from the template's per-app config
                     $DeployConfig = $App.Config | ConvertTo-Json -Depth 100 | ConvertFrom-Json -Depth 100
-                    $DeployConfig | Add-Member -NotePropertyName 'type' -NotePropertyValue $QueueType -Force
-                    $DeployConfig | Add-Member -NotePropertyName 'Applicationname' -NotePropertyValue $App.AppName -Force
                     # Compute assignTo the same way the HTTP handlers do
                     $AppAssignTo = if ($DeployConfig.AssignTo -eq 'customGroup') { $DeployConfig.CustomGroup } else { $DeployConfig.AssignTo }
-                    $DeployConfig | Add-Member -NotePropertyName 'assignTo' -NotePropertyValue $AppAssignTo -Force
+                    $DeployConfig | Add-Member -NotePropertyMembers ([ordered]@{
+                            type            = $QueueType
+                            Applicationname = $App.AppName
+                            assignTo        = $AppAssignTo
+                        }) -Force
 
                     $null = New-CIPPIntuneAppDeployment -AppConfig $DeployConfig -TenantFilter $Tenant -APIName 'Standards'
                     Write-LogMessage -API 'Standards' -tenant $Tenant -message "Deployed Intune app '$($App.AppName)' ($($App.AppType)) from template '$($App.TemplateName)'." -sev Info

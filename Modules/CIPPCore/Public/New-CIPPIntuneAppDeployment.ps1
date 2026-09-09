@@ -25,6 +25,11 @@ function New-CIPPIntuneAppDeployment {
     $ExcludeGroup = $AppConfig.excludeGroup
     $AppType = if ($AppConfig.type) { $AppConfig.type } else { 'Choco' }
 
+    # Older templates may hold a Graph-read body (has an id); only Office/Edge can deploy from one.
+    if ($IntuneBody.id -and $AppType -notin @('OfficeApp', 'EdgeApp')) {
+        throw "'$($AppConfig.Applicationname)' was templated from an existing Intune application with uploaded installer content. CIPP cannot deploy uploaded installer content; only script or package based applications can be templated. Rebuild this template entry as a Store, Chocolatey, Office, Edge, MSP or Custom Application."
+    }
+
     # Build IntuneBody from raw config if not pre-built (template/standard path)
     if (-not $IntuneBody -and $AppType -eq 'WinGet') {
         $PackageId = $AppConfig.packagename ?? $AppConfig.PackageName
@@ -120,8 +125,8 @@ function New-CIPPIntuneAppDeployment {
     # singletons per tenant whose Graph display name may differ from the template, so match on type.
     $ApplicationList = switch ($AppType) {
         'OfficeApp' { New-GraphGetRequest -Uri $BaseUri -tenantid $TenantFilter | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.officeSuiteApp' } }
-        'EdgeApp'   { New-GraphGetRequest -Uri $BaseUri -tenantid $TenantFilter | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.windowsMicrosoftEdgeApp' } }
-        default     { New-GraphGetRequest -Uri $BaseUri -tenantid $TenantFilter | Where-Object { $_.DisplayName -eq $AppConfig.Applicationname } }
+        'EdgeApp' { New-GraphGetRequest -Uri $BaseUri -tenantid $TenantFilter | Where-Object { $_.'@odata.type' -eq '#microsoft.graph.windowsMicrosoftEdgeApp' } }
+        default { New-GraphGetRequest -Uri $BaseUri -tenantid $TenantFilter | Where-Object { $_.DisplayName -eq $AppConfig.Applicationname } }
     }
     if ($ApplicationList.displayname.count -ge 1) {
         Write-LogMessage -API $APIName -tenant $TenantFilter -message "$($AppConfig.Applicationname) exists. Skipping this application" -Sev 'Info'
